@@ -1,10 +1,10 @@
 # Figma SVG View
 
-把 Figma 导出的 SVG 放进 Android 工程，Gradle 会在构建期自动转换成紧凑的绘制参数，运行时由一个通用 `FigmaSvgView` 绘制。原始 SVG 只是构建输入，不会被打进 APK。
+把 Figma 导出的 SVG 放进 Android 工程，由通用 `FigmaSvgView` 直接读取 SVG，或者使用可选的 Gradle plugin 在构建期转成更紧凑的 JSON 绘制参数。View 会自动识别两种格式。
 
 仓库内包含：
 
-- `buildSrc`：SVG → JSON 绘制参数的 Gradle 插件
+- `buildSrc`：可选的 SVG → JSON 绘制参数 Gradle plugin
 - `figma-svg-view`：通用 Android View
 - `app`：使用 `背景.svg` 的可运行 Demo
 
@@ -16,15 +16,41 @@
 include(":figma-svg-view")
 ```
 
-然后在需要转换 SVG 的 Android 模块中应用插件和 View 依赖：
+先依赖 View：
+
+```kotlin
+dependencies {
+    implementation(project(":figma-svg-view"))
+}
+```
+
+### 方式一：直接 SVG，不使用 plugin
+
+把 SVG 放入普通 raw 资源目录：
+
+```text
+app/src/main/res/raw/background.svg
+```
+
+布局直接引用：
+
+```xml
+<io.github.justson.figmasvg.FigmaSvgView
+    android:layout_width="match_parent"
+    android:layout_height="358dp"
+    app:figmaSvgSource="@raw/background"
+    app:figmaSvgScaleType="fit_xy" />
+```
+
+这种方式接入最简单，但首次显示时需要解析 SVG，原始 SVG 也会进入 APK。
+
+### 方式二：plugin 生成 JSON
+
+在需要转换 SVG 的 Android 模块应用插件：
 
 ```kotlin
 plugins {
     id("io.github.justson.figma-svg")
-}
-
-dependencies {
-    implementation(project(":figma-svg-view"))
 }
 ```
 
@@ -34,23 +60,24 @@ dependencies {
 app/src/main/figmaSvg/background.svg
 ```
 
-在布局中引用自动生成的资源：
+在布局中引用自动生成的 JSON 资源：
 
 ```xml
 <io.github.justson.figmasvg.FigmaSvgView
     android:layout_width="match_parent"
     android:layout_height="358dp"
-    app:figmaSvgSpec="@raw/figma_svg_background"
+    app:figmaSvgSource="@raw/figma_svg_background"
     app:figmaSvgScaleType="fit_xy" />
 ```
 
 也可以在代码中切换：
 
 ```kotlin
-figmaSvgView.setSpecResource(R.raw.figma_svg_background)
+figmaSvgView.setSourceResource(R.raw.background) // SVG
+figmaSvgView.setSourceResource(R.raw.figma_svg_background) // generated JSON
 ```
 
-构建产物位于 `build/generated/figmaSvg/<sourceSet>/res/raw/`。同名 flavor 文件会遵循 Android source set 的资源覆盖规则。
+JSON 构建产物位于 `build/generated/figmaSvg/<sourceSet>/res/raw/`。原始 SVG 只作为构建输入，不进入 APK；同名 flavor 文件遵循 Android source set 的资源覆盖规则。
 
 ## 当前支持范围
 

@@ -2,5 +2,7 @@
 <resources>
     <string name="app_name">Figma SVG View</string>
     <string name="demo_title">Figma SVG → Android View</string>
-    <string name="demo_subtitle">构建期自动转换，运行时按绘制参数渲染</string>
+    <string name="demo_subtitle">SVG 直接解析 / JSON 构建期转换</string>
+    <string name="show_json">切换到 JSON</string>
+    <string name="show_svg">切换到 SVG</string>
 </resources>

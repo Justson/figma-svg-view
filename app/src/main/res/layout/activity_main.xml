@@ -10,7 +10,7 @@
         android:layout_height="358dp"
         android:contentDescription="@null"
         app:figmaSvgScaleType="fit_xy"
-        app:figmaSvgSpec="@raw/figma_svg_background" />
+        app:figmaSvgSource="@raw/background" />
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -37,5 +37,12 @@
             android:text="@string/demo_subtitle"
             android:textColor="#72576A"
             android:textSize="15sp" />
+
+        <Button
+            android:id="@+id/switchSourceButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/show_json" />
     </LinearLayout>
 </FrameLayout>

@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <declare-styleable name="FigmaSvgView">
+        <attr name="figmaSvgSource" format="reference" />
+        <!-- Kept for source compatibility. Prefer figmaSvgSource for SVG/JSON auto detection. -->
         <attr name="figmaSvgSpec" format="reference" />
         <attr name="figmaSvgScaleType">
             <enum name="fit_xy" value="0" />

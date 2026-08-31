@@ -4,7 +4,6 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BlurMaskFilter
 import android.graphics.Canvas
-import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
 import android.util.AttributeSet
@@ -12,13 +11,12 @@ import android.util.LruCache
 import android.view.View
 import androidx.annotation.RawRes
 import io.github.justson.figmasvg.view.R
-import org.json.JSONObject
 import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
 
 /**
- * Renders compact specs generated from the supported Figma SVG subset.
+ * Renders either raw SVG resources or compact JSON specs generated from the supported subset.
  *
  * The build-time converter currently supports ellipses, a shared rectangular alpha mask and
  * Figma's transparent flood + normal blend + Gaussian blur filter pattern.
@@ -49,19 +47,26 @@ class FigmaSvgView @JvmOverloads constructor(
             scaleType = ScaleType.fromValue(
                 array.getInt(R.styleable.FigmaSvgView_figmaSvgScaleType, ScaleType.FIT_XY.value)
             )
-            val specResource = array.getResourceId(R.styleable.FigmaSvgView_figmaSvgSpec, 0)
-            if (specResource != 0) setSpecResource(specResource)
+            val legacySpecResource = array.getResourceId(R.styleable.FigmaSvgView_figmaSvgSpec, 0)
+            val sourceResource = array.getResourceId(
+                R.styleable.FigmaSvgView_figmaSvgSource,
+                legacySpecResource
+            )
+            if (sourceResource != 0) setSourceResource(sourceResource)
         }
     }
 
-    fun setSpecResource(@RawRes resourceId: Int) {
-        val newSpec = if (resourceId == 0) null else parseSpec(resourceId)
+    fun setSourceResource(@RawRes resourceId: Int) {
+        val newSpec = if (resourceId == 0) null else parseSource(resourceId)
         // Do not recycle the old bitmap: it may still be shared by another view.
         renderSpec = newSpec
         renderedBitmap = newSpec?.let { obtainBitmap(resourceId, it) }
         requestLayout()
         invalidate()
     }
+
+    /** Backward-compatible alias for JSON-only callers. */
+    fun setSpecResource(@RawRes resourceId: Int) = setSourceResource(resourceId)
 
     /** Shares identical rendered specs across views in the current process. */
     private fun obtainBitmap(@RawRes resourceId: Int, spec: RenderSpec): Bitmap {
@@ -180,63 +185,11 @@ class FigmaSvgView @JvmOverloads constructor(
         return bitmap
     }
 
-    private fun parseSpec(@RawRes resourceId: Int): RenderSpec {
+    private fun parseSource(@RawRes resourceId: Int): RenderSpec {
         val resourceName = runCatching { resources.getResourceName(resourceId) }
             .getOrDefault(resourceId.toString())
-        return try {
-            val jsonText = resources.openRawResource(resourceId).bufferedReader().use { it.readText() }
-            val root = JSONObject(jsonText)
-            require(root.getInt("version") == 1) { "Unsupported spec version." }
-
-            val viewport = root.getJSONArray("viewport")
-            val clip = root.getJSONArray("clip")
-            val ellipseValues = root.getJSONArray("ellipses")
-            val ellipses = buildList {
-                for (index in 0 until ellipseValues.length()) {
-                    val ellipse = ellipseValues.getJSONArray(index)
-                    add(
-                        EllipseSpec(
-                            centerX = ellipse.getDouble(0).toFloat(),
-                            centerY = ellipse.getDouble(1).toFloat(),
-                            radiusX = ellipse.getDouble(2).toFloat(),
-                            radiusY = ellipse.getDouble(3).toFloat(),
-                            color = Color.parseColor(ellipse.getString(4)),
-                            blurSigma = ellipse.getDouble(5).toFloat(),
-                            filterBounds = if (ellipse.length() >= 10) {
-                                RectF(
-                                    ellipse.getDouble(6).toFloat(),
-                                    ellipse.getDouble(7).toFloat(),
-                                    ellipse.getDouble(8).toFloat(),
-                                    ellipse.getDouble(9).toFloat()
-                                )
-                            } else {
-                                null
-                            }
-                        )
-                    )
-                }
-            }
-
-            RenderSpec(
-                viewportLeft = viewport.getDouble(0).toFloat(),
-                viewportTop = viewport.getDouble(1).toFloat(),
-                viewportWidth = viewport.getDouble(2).toFloat(),
-                viewportHeight = viewport.getDouble(3).toFloat(),
-                clipBounds = RectF(
-                    clip.getDouble(0).toFloat(),
-                    clip.getDouble(1).toFloat(),
-                    clip.getDouble(2).toFloat(),
-                    clip.getDouble(3).toFloat()
-                ),
-                ellipses = ellipses
-            ).also {
-                require(it.viewportWidth > 0f && it.viewportHeight > 0f) {
-                    "Viewport dimensions must be positive."
-                }
-            }
-        } catch (error: Exception) {
-            throw IllegalArgumentException("Invalid Figma SVG render spec '$resourceName'.", error)
-        }
+        val source = resources.openRawResource(resourceId).bufferedReader().use { it.readText() }
+        return FigmaSvgSourceParser.parse(source, resourceName)
     }
 
     enum class ScaleType(internal val value: Int) {
@@ -252,25 +205,6 @@ class FigmaSvgView @JvmOverloads constructor(
 
     private fun svgSigmaToAndroidRadius(sigma: Float): Float =
         max((sigma - ANDROID_BLUR_SIGMA_OFFSET) / ANDROID_BLUR_SIGMA_SCALE, MIN_BLUR_RADIUS)
-
-    private data class RenderSpec(
-        val viewportLeft: Float,
-        val viewportTop: Float,
-        val viewportWidth: Float,
-        val viewportHeight: Float,
-        val clipBounds: RectF,
-        val ellipses: List<EllipseSpec>
-    )
-
-    private data class EllipseSpec(
-        val centerX: Float,
-        val centerY: Float,
-        val radiusX: Float,
-        val radiusY: Float,
-        val color: Int,
-        val blurSigma: Float,
-        val filterBounds: RectF?
-    )
 
     private companion object {
         // Android converts BlurMaskFilter radius to sigma as radius * 0.57735 + 0.5.
