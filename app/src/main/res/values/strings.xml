@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Figma SVG View</string>
+    <string name="demo_title">Figma SVG → Android View</string>
+    <string name="demo_subtitle">构建期自动转换，运行时按绘制参数渲染</string>
+</resources>

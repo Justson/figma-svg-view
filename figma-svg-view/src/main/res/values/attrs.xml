@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <declare-styleable name="FigmaSvgView">
+        <attr name="figmaSvgSpec" format="reference" />
+        <attr name="figmaSvgScaleType">
+            <enum name="fit_xy" value="0" />
+            <enum name="fit_center" value="1" />
+            <enum name="center_crop" value="2" />
+        </attr>
+    </declare-styleable>
+</resources>
