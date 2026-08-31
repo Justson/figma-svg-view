@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "io.github.justson.figmasvg.view"
-    compileSdk = 36
+    compileSdk = 34
 
     defaultConfig {
         minSdk = 23
