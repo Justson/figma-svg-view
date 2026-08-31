@@ -1,14 +1,14 @@
 plugins {
     `kotlin-dsl`
+    `maven-publish`
 }
 
-repositories {
-    google()
-    mavenCentral()
-}
+group = "com.github.Justson.figma-svg-view"
+version = (findProperty("VERSION") as String? ?: System.getenv("VERSION"))
+    ?.removePrefix("v")?.takeIf { it.isNotBlank() } ?: "1.0.0-SNAPSHOT"
 
 dependencies {
-    implementation("com.android.tools.build:gradle:8.13.2")
+    compileOnly("com.android.tools.build:gradle:8.13.2")
 }
 
 kotlin {

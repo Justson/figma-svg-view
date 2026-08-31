@@ -1,0 +1,11 @@
+jdk:
+  - openjdk17
+
+before_install:
+  - sdk install java 17.0.13-tem
+  - sdk use java 17.0.13-tem
+  - yes | sdkmanager "platforms;android-36" > /dev/null || true
+
+install:
+  - ./gradlew -p figma-svg-plugin publishToMavenLocal --no-daemon --no-configuration-cache -PVERSION=$VERSION
+  - ./gradlew :figma-svg-view:publishToMavenLocal --no-daemon --no-configuration-cache -PVERSION=$VERSION

@@ -4,25 +4,49 @@
 
 仓库内包含：
 
-- `buildSrc`：可选的 SVG → JSON 绘制参数 Gradle plugin
+- `figma-svg-plugin`：可选的 SVG → JSON 绘制参数 Gradle plugin
 - `figma-svg-view`：通用 Android View
 - `app`：使用 `背景.svg` 的可运行 Demo
 
 ## 快速使用
 
-当前仓库提供源码集成方式：把 `buildSrc` 和 `figma-svg-view` 目录复制到目标工程，并在目标工程的 `settings.gradle.kts` 中加入：
+在 `settings.gradle.kts` 中加入 JitPack 仓库。只用 View 的话，加 `dependencyResolutionManagement` 一段即可；要用 plugin 再加 `pluginManagement` 一段：
 
 ```kotlin
-include(":figma-svg-view")
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+        maven("https://jitpack.io")
+    }
+    resolutionStrategy {
+        eachPlugin {
+            if (requested.id.id == "io.github.justson.figma-svg") {
+                useModule("com.github.Justson.figma-svg-view:figma-svg-plugin:${requested.version}")
+            }
+        }
+    }
+}
+
+dependencyResolutionManagement {
+    repositories {
+        google()
+        mavenCentral()
+        maven("https://jitpack.io")
+    }
+}
 ```
 
-先依赖 View：
+然后依赖 View：
 
 ```kotlin
 dependencies {
-    implementation(project(":figma-svg-view"))
+    implementation("com.github.Justson.figma-svg-view:figma-svg-view:1.0.0")
 }
 ```
+
+两种使用方式可以按模块自由选择，也可以混用。
 
 ### 方式一：直接 SVG，不使用 plugin
 
@@ -50,9 +74,11 @@ app/src/main/res/raw/background.svg
 
 ```kotlin
 plugins {
-    id("io.github.justson.figma-svg")
+    id("io.github.justson.figma-svg") version "1.0.0"
 }
 ```
+
+plugin 只在构建期运行，不会给 APK 增加运行时依赖。
 
 把符合 Android 资源命名规则的文件放入：
 
@@ -91,12 +117,21 @@ JSON 构建产物位于 `build/generated/figmaSvg/<sourceSet>/res/raw/`。原始
 
 遇到 `path`、`transform`、复杂 mask、非 normal blend 或其他尚未支持的节点时，转换器会让构建失败并指出具体节点，避免静默生成错误 UI。
 
-## 构建
+## 本仓库构建
 
 需要 JDK 17、Android SDK 36：
 
 ```bash
 ./gradlew :app:assembleDebug
+```
+
+`figma-svg-plugin` 是一个独立的 composite build，由根 `settings.gradle.kts` 的 `pluginManagement { includeBuild(...) }` 引入，Demo 因此可以直接应用它而不需要先发布。
+
+发布验证：
+
+```bash
+./gradlew -p figma-svg-plugin publishToMavenLocal -PVERSION=1.0.0
+./gradlew :figma-svg-view:publishToMavenLocal -PVERSION=1.0.0
 ```
 
 ## License

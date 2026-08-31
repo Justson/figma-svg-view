@@ -1,5 +1,4 @@
 pluginManagement {
-    includeBuild("figma-svg-plugin")
     repositories {
         google()
         mavenCentral()
@@ -8,13 +7,12 @@ pluginManagement {
 }
 
 dependencyResolutionManagement {
-    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
     repositories {
         google()
         mavenCentral()
+        gradlePluginPortal()
     }
 }
 
-rootProject.name = "figma-svg-view"
-include(":app")
-include(":figma-svg-view")
+rootProject.name = "figma-svg-plugin"
