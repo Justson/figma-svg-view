@@ -28,4 +28,5 @@ kotlin {
 
 dependencies {
     implementation(project(":figma-svg-view"))
+    implementation(kotlin("stdlib"))
 }

@@ -43,7 +43,10 @@ class FigmaSvgView @JvmOverloads constructor(
 
     init {
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
-        context.obtainStyledAttributes(attrs, R.styleable.FigmaSvgView, defStyleAttr, 0).use { array ->
+        // 不能用 TypedArray.use：TypedArray 直到 API 31 才实现 AutoCloseable，
+        // 更低的系统上会抛 NoSuchMethodError。
+        val array = context.obtainStyledAttributes(attrs, R.styleable.FigmaSvgView, defStyleAttr, 0)
+        try {
             scaleType = ScaleType.fromValue(
                 array.getInt(R.styleable.FigmaSvgView_figmaSvgScaleType, ScaleType.FIT_XY.value)
             )
@@ -53,6 +56,8 @@ class FigmaSvgView @JvmOverloads constructor(
                 legacySpecResource
             )
             if (sourceResource != 0) setSourceResource(sourceResource)
+        } finally {
+            array.recycle()
         }
     }
 

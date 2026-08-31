@@ -13,7 +13,7 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        minSdk = 23
+        minSdk = 21
         consumerProguardFiles("consumer-rules.pro")
     }
 
@@ -34,7 +34,10 @@ android {
 }
 
 dependencies {
-    api("androidx.annotation:annotation:1.9.1")
+    // 全部 compileOnly：这两者都只在编译期需要，不写进 aar 的 pom，
+    // 使用方（尤其是 Kotlin 1.7 / annotation 1.1 的老工程）继续用自己的版本。
+    compileOnly("androidx.annotation:annotation:1.9.1")
+    compileOnly(kotlin("stdlib"))
 }
 
 publishing {
