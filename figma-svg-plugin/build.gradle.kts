@@ -13,6 +13,8 @@ dependencies {
 
 kotlin {
     jvmToolchain(17)
+    // 与 figma-svg-view 共用同一份解析实现，避免构建期与运行期的校验规则漂移。
+    sourceSets["main"].kotlin.srcDir("../figma-svg-core/src/main/kotlin")
 }
 
 gradlePlugin {

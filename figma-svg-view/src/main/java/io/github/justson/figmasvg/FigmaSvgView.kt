@@ -10,6 +10,7 @@ import android.util.AttributeSet
 import android.util.LruCache
 import android.view.View
 import androidx.annotation.RawRes
+import io.github.justson.figmasvg.core.RenderSpec
 import io.github.justson.figmasvg.view.R
 import kotlin.math.ceil
 import kotlin.math.max
@@ -161,11 +162,11 @@ class FigmaSvgView @JvmOverloads constructor(
         val bitmapCanvas = Canvas(bitmap)
         bitmapCanvas.scale(rasterScale, rasterScale)
         bitmapCanvas.translate(-spec.viewportLeft, -spec.viewportTop)
-        bitmapCanvas.clipRect(spec.clipBounds)
+        bitmapCanvas.clipRect(spec.clip.left, spec.clip.top, spec.clip.right, spec.clip.bottom)
 
         spec.ellipses.forEach { ellipse ->
             val saveCount = bitmapCanvas.save()
-            ellipse.filterBounds?.let(bitmapCanvas::clipRect)
+            ellipse.filterBounds?.let { bitmapCanvas.clipRect(it.left, it.top, it.right, it.bottom) }
             shapePaint.color = ellipse.color
             shapePaint.maskFilter = if (ellipse.blurSigma > 0f) {
                 blurFilters.getOrPut(ellipse.blurSigma) {

@@ -10,6 +10,10 @@ version = (findProperty("VERSION") as String? ?: System.getenv("VERSION"))
 
 android {
     namespace = "io.github.justson.figmasvg.view"
+
+    // 共享源码而不是独立 artifact：解析与校验逻辑只有一份，
+    // 同时 aar 不需要多带一个传递依赖。见 figma-svg-core/README.md。
+    sourceSets["main"].java.srcDir("../figma-svg-core/src/main/kotlin")
     compileSdk = 36
 
     defaultConfig {
