@@ -7,7 +7,7 @@
 <path d="M30 130C30 100 90 100 90 130S150 160 150 130" fill="#22AA88"/>
 </g>
 <path fill-rule="evenodd" d="M70 160a30 30 0 1 0 60 0a30 30 0 1 0-60 0M85 160a15 15 0 1 1 30 0a15 15 0 1 1-30 0" fill="#334455"/>
-<ellipse cx="160" cy="40" rx="25" ry="18" fill="#AA22CC" transform="scale(1.1)"/>
+<ellipse cx="145" cy="40" rx="25" ry="18" fill="#AA22CC" transform="scale(1.1)"/>
 <defs>
 <filter id="blur0" x="0" y="80" width="200" height="120" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
 <feFlood flood-opacity="0" result="BackgroundImageFix"/>
