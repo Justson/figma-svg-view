@@ -47,6 +47,7 @@ class FigmaSvgView @JvmOverloads constructor(
 
     private var renderSpec: RenderSpec? = null
     private var renderedBitmap: Bitmap? = null
+    private var sourceResourceId = 0
     private var scaleType = ScaleType.FIT_XY
 
     init {
@@ -73,6 +74,7 @@ class FigmaSvgView @JvmOverloads constructor(
         val newSpec = if (resourceId == 0) null else parseSource(resourceId)
         // Do not recycle the old bitmap: it may still be shared by another view.
         renderSpec = newSpec
+        sourceResourceId = resourceId
         renderedBitmap = newSpec?.let { obtainBitmap(resourceId, it) }
         requestLayout()
         invalidate()
@@ -113,6 +115,16 @@ class FigmaSvgView @JvmOverloads constructor(
         )
     }
 
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        // Before layout the raster size is only a density-based guess; now that the real pixel
+        // size is known, re-rasterise so sharp edges are not scaled up by the hardware canvas.
+        val spec = renderSpec ?: return
+        if (w == 0 || h == 0) return
+        renderedBitmap = obtainBitmap(sourceResourceId, spec)
+        invalidate()
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val spec = renderSpec ?: return
@@ -146,18 +158,28 @@ class FigmaSvgView @JvmOverloads constructor(
     }
 
     /**
-     * Chooses a smaller raster for heavily blurred artwork while keeping sharp shapes at the
-     * source resolution. The final bitmap is still scaled by the hardware canvas.
+     * Picks the raster resolution.
+     *
+     * Sharp shapes need roughly one raster pixel per screen pixel, otherwise the hardware canvas
+     * scales the bitmap up and the anti-aliased edges get magnified along with it. Heavily
+     * blurred artwork does not need that many pixels, so it still rasterises smaller.
      */
     private fun rasterScaleFor(spec: RenderSpec): Float {
         val longEdge = max(spec.viewportWidth, spec.viewportHeight)
-        val sizeLimited = min(1f, MAX_RASTER_DIMENSION / longEdge)
+        // How much the artwork will be scaled up on screen. Before layout there is no size yet,
+        // so fall back to the display density, which is what a wrap_content view would use.
+        val needed = if (width > 0 && height > 0) {
+            max(width / spec.viewportWidth, height / spec.viewportHeight)
+        } else {
+            resources.displayMetrics.density
+        }.coerceAtLeast(1f)
+        val sizeLimited = min(needed, MAX_RASTER_DIMENSION / longEdge)
         val hasSharpShape = spec.shapes.any { it.blurSigma <= 0f }
         val minSigma = spec.shapes.filter { it.blurSigma > 0f }.minOfOrNull { it.blurSigma }
         if (hasSharpShape || minSigma == null) return sizeLimited
-        val blurLimited = min(1f, MIN_BLUR_SPAN_PX / minSigma)
+        val blurLimited = min(needed, MIN_BLUR_SPAN_PX / minSigma)
         // Keep enough pixels to preserve the position of large blurred shapes.
-        val floorScale = min(1f, MIN_RASTER_DIMENSION / longEdge)
+        val floorScale = min(needed, MIN_RASTER_DIMENSION / longEdge)
         return max(min(sizeLimited, blurLimited), floorScale)
     }
 
@@ -249,8 +271,17 @@ class FigmaSvgView @JvmOverloads constructor(
         /** Lower bound for the raster long edge. */
         const val MIN_RASTER_DIMENSION = 64f
 
-        /** Process-wide cache keyed by resource and raster dimensions. */
-        val bitmapCache = object : LruCache<String, Bitmap>(2 * 1024 * 1024) {
+        /**
+         * Process-wide cache keyed by resource and raster dimensions.
+         *
+         * Sized from the heap rather than a fixed 2MB: a full-screen raster on a 3.5x device is
+         * already ~6MB, and anything larger than the cache would be evicted the moment it is put.
+         */
+        val bitmapCache = object : LruCache<String, Bitmap>(
+            (Runtime.getRuntime().maxMemory() / 16)
+                .coerceIn(8L * 1024 * 1024, 48L * 1024 * 1024)
+                .toInt()
+        ) {
             override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
         }
     }
