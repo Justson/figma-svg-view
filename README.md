@@ -4,9 +4,10 @@
 
 仓库内包含：
 
+- `figma-svg-core`：SVG 解析与校验的共享源码，构建期与运行期共用同一份（不是 Gradle 模块，见其 README）
 - `figma-svg-plugin`：可选的 SVG → JSON 绘制参数 Gradle plugin
 - `figma-svg-view`：通用 Android View
-- `app`：使用 `背景.svg` 的可运行 Demo
+- `app`：可运行 Demo，含模糊椭圆背景与 path / transform 验证画面
 
 ## 快速使用
 
@@ -42,9 +43,11 @@ dependencyResolutionManagement {
 
 ```kotlin
 dependencies {
-    implementation("com.github.Justson.figma-svg-view:figma-svg-view:1.0.0")
+    implementation("com.github.Justson.figma-svg-view:figma-svg-view:1.1.0")
 }
 ```
+
+aar 的 pom 不带任何传递依赖，不会影响宿主工程的版本。代价是 `androidx.core`（`PathParser` 用来解析 path data）、`androidx.annotation` 与 `kotlin-stdlib` 都声明为 `compileOnly`，需要由使用方提供——任何用到 appcompat 的工程都已经有了。
 
 两种使用方式可以按模块自由选择，也可以混用。
 
@@ -74,7 +77,7 @@ app/src/main/res/raw/background.svg
 
 ```kotlin
 plugins {
-    id("io.github.justson.figma-svg") version "1.0.0"
+    id("io.github.justson.figma-svg") version "1.1.0"
 }
 ```
 
@@ -108,14 +111,24 @@ JSON 构建产物位于 `build/generated/figmaSvg/<sourceSet>/res/raw/`。原始
 ## 当前支持范围
 
 - `viewBox`
-- `<ellipse>` 与十六进制 `fill` / opacity
+- `<path>`，含 `fill-rule="evenodd"` 与全部路径命令（含弧线）
+- `<ellipse>`
+- 十六进制 `fill`、`fill-opacity`、`opacity`
+- `transform`：`translate` / `scale` / `rotate` / `skewX` / `skewY` / `matrix`，可嵌套组合
 - 单个共享的矩形 alpha `<mask>`
 - Figma 常见的透明 `feFlood`、normal `feBlend`、`feGaussianBlur`
 - `filterUnits="userSpaceOnUse"` 的滤镜裁剪范围
 - `fit_xy`、`fit_center`、`center_crop`
 - Gradle 增量转换与构建缓存
 
-遇到 `path`、`transform`、复杂 mask、非 normal blend 或其他尚未支持的节点时，转换器会让构建失败并指出具体节点，避免静默生成错误 UI。
+遇到尚未支持的节点时，转换器会让构建失败并指出具体节点，避免静默生成错误 UI。目前会被拒绝的包括：渐变 `fill`、`stroke`、`<text>`、`<image>`、非矩形或渐变 mask、非 normal blend、`feGaussianBlur` 以外的滤镜链（阴影、`feColorMatrix` 等）。
+
+还有一条与模糊相关的限制：**带 `feGaussianBlur` 的图形只允许平移、旋转和等比缩放**。高斯模糊在用户空间是各向同性的，相似变换下它仍是各向同性的（只是被缩放），`BlurMaskFilter` 能精确还原；而 skew 或非等比缩放会要求各向异性模糊，`BlurMaskFilter` 做不到，所以这种组合会让构建失败而不是画错。
+
+### 不打算支持的
+
+- **模糊任意子树**：`BlurMaskFilter` 模糊的是形状的 alpha 遮罩，多色内容会糊成一团。做对需要离屏渲染 + 真高斯，而 `RenderEffect` 要 API 31+、RenderScript 已废弃
+- **纯几何图标**：没有模糊的图标直接用 VectorDrawable（Android Studio 可以直接导入 SVG），系统级渲染更成熟。这个库存在的理由是 VectorDrawable 做不了高斯模糊
 
 ## 本仓库构建
 
@@ -130,8 +143,8 @@ JSON 构建产物位于 `build/generated/figmaSvg/<sourceSet>/res/raw/`。原始
 发布验证：
 
 ```bash
-./gradlew -p figma-svg-plugin publishToMavenLocal -PVERSION=1.0.0
-./gradlew :figma-svg-view:publishToMavenLocal -PVERSION=1.0.0
+./gradlew -p figma-svg-plugin publishToMavenLocal -PVERSION=1.1.0
+./gradlew :figma-svg-view:publishToMavenLocal -PVERSION=1.1.0
 ```
 
 ## License

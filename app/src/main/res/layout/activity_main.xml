@@ -12,6 +12,16 @@
         app:figmaSvgScaleType="fit_xy"
         app:figmaSvgSource="@raw/background" />
 
+    <!-- path / transform / evenodd / arc 的验证画面 -->
+    <io.github.justson.figmasvg.FigmaSvgView
+        android:id="@+id/shapesView"
+        android:layout_width="220dp"
+        android:layout_height="220dp"
+        android:layout_gravity="center"
+        android:contentDescription="@null"
+        app:figmaSvgScaleType="fit_center"
+        app:figmaSvgSource="@raw/shapes" />
+
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

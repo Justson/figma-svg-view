@@ -42,6 +42,9 @@ dependencies {
     // 使用方（尤其是 Kotlin 1.7 / annotation 1.1 的老工程）继续用自己的版本。
     compileOnly("androidx.annotation:annotation:1.9.1")
     compileOnly(kotlin("stdlib"))
+    // PathParser 把 SVG path data 变成 android.graphics.Path。androidx.core 从 1.0 起就有这个
+    // 公开 API，任何用到 appcompat 的工程都已经带上了它，所以这里同样不做传递依赖。
+    compileOnly("androidx.core:core:1.9.0")
 }
 
 publishing {

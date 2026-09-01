@@ -29,4 +29,6 @@ kotlin {
 dependencies {
     implementation(project(":figma-svg-view"))
     implementation(kotlin("stdlib"))
+    // figma-svg-view 把 androidx.core 声明为 compileOnly，使用方需要自行提供。
+    implementation("androidx.core:core:1.9.0")
 }

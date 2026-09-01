@@ -17,16 +17,29 @@ object FigmaSvgParser {
 
     private data class SvgFilter(val blurSigma: Float, val bounds: Bounds)
 
-    private data class ParsedEllipse(
-        val centerX: Float,
-        val centerY: Float,
-        val radiusX: Float,
-        val radiusY: Float,
+    private sealed class Geometry {
+        data class Ellipse(
+            val centerX: Float,
+            val centerY: Float,
+            val radiusX: Float,
+            val radiusY: Float
+        ) : Geometry()
+
+        data class Path(val pathData: String, val evenOdd: Boolean) : Geometry()
+    }
+
+    private data class ParsedShape(
+        val geometry: Geometry,
         val color: Int,
-        val filterId: String?
+        val filterId: String?,
+        val transform: Transform?
     )
 
-    private data class RenderContext(val filterId: String? = null, val maskId: String? = null)
+    private data class RenderContext(
+        val filterId: String? = null,
+        val maskId: String? = null,
+        val transform: Transform? = null
+    )
 
     fun parse(svgText: String, sourceName: String): RenderSpec {
         if (svgText.contains("<!DOCTYPE", ignoreCase = true)) {
@@ -65,40 +78,61 @@ object FigmaSvgParser {
         val filters = parseFilters(root, sourceName)
         val masks = parseMasks(root, sourceName)
         val usedMasks = linkedSetOf<String>()
-        val parsedEllipses = mutableListOf<ParsedEllipse>()
+        val parsedShapes = mutableListOf<ParsedShape>()
         childElements(root).forEach { child ->
             when (localName(child)) {
                 "defs", "mask" -> Unit
-                "g", "ellipse" -> parseRenderable(
-                    child, RenderContext(), filters, masks, usedMasks, parsedEllipses, sourceName
+                "g", "ellipse", "path" -> parseRenderable(
+                    child, RenderContext(), filters, masks, usedMasks, parsedShapes, sourceName
                 )
                 else -> fail(sourceName, "Unsupported top-level SVG element <${localName(child)}>.")
             }
         }
-        if (parsedEllipses.isEmpty()) fail(sourceName, "No supported <ellipse> elements were found.")
+        if (parsedShapes.isEmpty()) fail(sourceName, "No supported <ellipse> or <path> elements were found.")
         if (usedMasks.size > 1) fail(sourceName, "Only one shared rectangular alpha mask is supported per SVG.")
 
         val clip = usedMasks.firstOrNull()
             ?.let { maskId -> intersectOrFail(viewport, masks.getValue(maskId), sourceName) }
             ?: viewport
 
+        // Built outside the try below so that a rejection here keeps its own message instead of
+        // being re-wrapped by the RenderSpec catch.
+        val shapes = parsedShapes.map { shape ->
+            val filter = shape.filterId?.let(filters::getValue)
+            val blurSigma = filter?.blurSigma ?: 0f
+            // A Gaussian blur is isotropic in user space. Only a similarity transform
+            // keeps it isotropic, and BlurMaskFilter cannot express anything else.
+            if (blurSigma > 0f && shape.transform?.isSimilarity == false) {
+                fail(
+                    sourceName,
+                    "A blurred shape may only use translate, rotate and uniform scale; " +
+                        "skew and non-uniform scale would need an anisotropic blur."
+                )
+            }
+            when (val geometry = shape.geometry) {
+                is Geometry.Ellipse -> EllipseSpec(
+                    centerX = geometry.centerX,
+                    centerY = geometry.centerY,
+                    radiusX = geometry.radiusX,
+                    radiusY = geometry.radiusY,
+                    color = shape.color,
+                    blurSigma = blurSigma,
+                    filterBounds = filter?.bounds,
+                    transform = shape.transform
+                )
+                is Geometry.Path -> PathSpec(
+                    pathData = geometry.pathData,
+                    evenOdd = geometry.evenOdd,
+                    color = shape.color,
+                    blurSigma = blurSigma,
+                    filterBounds = filter?.bounds,
+                    transform = shape.transform
+                )
+            }
+        }
+
         return try {
-            RenderSpec(
-                viewport = viewport,
-                clip = clip,
-                ellipses = parsedEllipses.map { ellipse ->
-                    val filter = ellipse.filterId?.let(filters::getValue)
-                    EllipseSpec(
-                        centerX = ellipse.centerX,
-                        centerY = ellipse.centerY,
-                        radiusX = ellipse.radiusX,
-                        radiusY = ellipse.radiusY,
-                        color = ellipse.color,
-                        blurSigma = filter?.blurSigma ?: 0f,
-                        filterBounds = filter?.bounds
-                    )
-                }
-            )
+            RenderSpec(viewport = viewport, clip = clip, shapes = shapes)
         } catch (error: FigmaSvgException) {
             fail(sourceName, error.message ?: "Invalid render spec.")
         }
@@ -206,25 +240,45 @@ object FigmaSvgParser {
         filters: Map<String, SvgFilter>,
         masks: Map<String, Bounds>,
         usedMasks: MutableSet<String>,
-        ellipses: MutableList<ParsedEllipse>,
+        shapes: MutableList<ParsedShape>,
         sourceName: String
     ) {
-        when (localName(element)) {
-            "g" -> requireOnlyAttributes(element, setOf("filter", "mask"), sourceName)
+        val name = localName(element)
+        when (name) {
+            "g" -> requireOnlyAttributes(element, setOf("filter", "mask", "transform"), sourceName)
             "ellipse" -> requireOnlyAttributes(
                 element,
-                setOf("id", "cx", "cy", "rx", "ry", "fill", "fill-opacity", "opacity", "filter", "mask"),
+                setOf(
+                    "id", "cx", "cy", "rx", "ry", "fill", "fill-opacity", "opacity",
+                    "filter", "mask", "transform"
+                ),
+                sourceName
+            )
+            "path" -> requireOnlyAttributes(
+                element,
+                setOf(
+                    "id", "d", "fill", "fill-opacity", "fill-rule", "opacity",
+                    "filter", "mask", "transform"
+                ),
                 sourceName
             )
         }
-        rejectAttribute(element, "transform", sourceName)
         rejectAttribute(element, "clip-path", sourceName)
+
+        val ownTransform = element.getAttribute("transform").takeIf { it.isNotBlank() }
+            ?.let { SvgTransform.parse(it, sourceName, name) }
+        val transform = when {
+            ownTransform == null -> inheritedContext.transform
+            inheritedContext.transform == null -> ownTransform
+            else -> inheritedContext.transform.concat(ownTransform)
+        }
+
         val ownFilter = parseUrlReference(element.getAttribute("filter"), "filter", sourceName)
         if (ownFilter != null && inheritedContext.filterId != null) {
             fail(sourceName, "Nested SVG filters are not supported.")
         }
-        if (ownFilter != null && localName(element) == "g" && countEllipses(element) != 1) {
-            fail(sourceName, "A filtered <g> must contain exactly one ellipse.")
+        if (ownFilter != null && name == "g" && countShapes(element) != 1) {
+            fail(sourceName, "A filtered <g> must contain exactly one shape.")
         }
         val filterId = ownFilter ?: inheritedContext.filterId
         if (filterId != null && filterId !in filters) fail(sourceName, "Unknown SVG filter '#$filterId'.")
@@ -237,12 +291,12 @@ object FigmaSvgParser {
             if (maskId !in masks) fail(sourceName, "Unknown SVG mask '#$maskId'.")
             usedMasks += maskId
         }
-        val context = RenderContext(filterId, maskId)
-        when (localName(element)) {
+        val context = RenderContext(filterId, maskId, transform)
+        when (name) {
             "g" -> childElements(element).forEach { child ->
                 when (localName(child)) {
-                    "g", "ellipse" -> parseRenderable(
-                        child, context, filters, masks, usedMasks, ellipses, sourceName
+                    "g", "ellipse", "path" -> parseRenderable(
+                        child, context, filters, masks, usedMasks, shapes, sourceName
                     )
                     else -> fail(sourceName, "Unsupported SVG element <${localName(child)}> inside <g>.")
                 }
@@ -251,22 +305,41 @@ object FigmaSvgParser {
                 val radiusX = numberAttribute(element, "rx", sourceName)
                 val radiusY = numberAttribute(element, "ry", sourceName)
                 if (radiusX <= 0f || radiusY <= 0f) fail(sourceName, "Ellipse radii must be positive.")
-                ellipses += ParsedEllipse(
-                    optionalNumberAttribute(element, "cx", 0f, sourceName),
-                    optionalNumberAttribute(element, "cy", 0f, sourceName),
-                    radiusX,
-                    radiusY,
-                    parseColor(
-                        requiredAttribute(element, "fill", sourceName),
-                        optionalNumberAttribute(element, "fill-opacity", 1f, sourceName) *
-                            optionalNumberAttribute(element, "opacity", 1f, sourceName),
-                        sourceName
+                shapes += ParsedShape(
+                    geometry = Geometry.Ellipse(
+                        optionalNumberAttribute(element, "cx", 0f, sourceName),
+                        optionalNumberAttribute(element, "cy", 0f, sourceName),
+                        radiusX,
+                        radiusY
                     ),
-                    filterId
+                    color = fillColor(element, sourceName),
+                    filterId = filterId,
+                    transform = transform
+                )
+            }
+            "path" -> {
+                val pathData = requiredAttribute(element, "d", sourceName)
+                SvgPathData.validate(pathData, sourceName, "path")
+                val fillRule = element.getAttribute("fill-rule").ifBlank { "nonzero" }
+                if (fillRule != "nonzero" && fillRule != "evenodd") {
+                    fail(sourceName, "Unsupported fill-rule '$fillRule'.")
+                }
+                shapes += ParsedShape(
+                    geometry = Geometry.Path(pathData.trim(), evenOdd = fillRule == "evenodd"),
+                    color = fillColor(element, sourceName),
+                    filterId = filterId,
+                    transform = transform
                 )
             }
         }
     }
+
+    private fun fillColor(element: Element, sourceName: String): Int = parseColor(
+        requiredAttribute(element, "fill", sourceName),
+        optionalNumberAttribute(element, "fill-opacity", 1f, sourceName) *
+            optionalNumberAttribute(element, "opacity", 1f, sourceName),
+        sourceName
+    )
 
     private fun intersectOrFail(first: Bounds, second: Bounds, sourceName: String): Bounds = try {
         first.intersect(second)
@@ -320,7 +393,8 @@ object FigmaSvgParser {
         return match.groupValues[1]
     }
 
-    private fun countEllipses(element: Element): Int = descendants(element, "ellipse").size
+    private fun countShapes(element: Element): Int =
+        descendants(element, "ellipse").size + descendants(element, "path").size
 
     private fun numberAttribute(element: Element, name: String, sourceName: String): Float =
         parseNumber(requiredAttribute(element, name, sourceName), name, sourceName)

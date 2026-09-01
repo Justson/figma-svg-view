@@ -4,13 +4,19 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BlurMaskFilter
 import android.graphics.Canvas
+import android.graphics.Matrix
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import android.util.AttributeSet
 import android.util.LruCache
 import android.view.View
 import androidx.annotation.RawRes
+import androidx.core.graphics.PathParser
+import io.github.justson.figmasvg.core.EllipseSpec
+import io.github.justson.figmasvg.core.PathSpec
 import io.github.justson.figmasvg.core.RenderSpec
+import io.github.justson.figmasvg.core.Transform
 import io.github.justson.figmasvg.view.R
 import kotlin.math.ceil
 import kotlin.math.max
@@ -36,6 +42,7 @@ class FigmaSvgView @JvmOverloads constructor(
     }
     private val ovalBounds = RectF()
     private val destinationBounds = RectF()
+    private val shapeMatrix = Matrix()
     private val blurFilters = mutableMapOf<Float, BlurMaskFilter>()
 
     private var renderSpec: RenderSpec? = null
@@ -145,8 +152,8 @@ class FigmaSvgView @JvmOverloads constructor(
     private fun rasterScaleFor(spec: RenderSpec): Float {
         val longEdge = max(spec.viewportWidth, spec.viewportHeight)
         val sizeLimited = min(1f, MAX_RASTER_DIMENSION / longEdge)
-        val hasSharpShape = spec.ellipses.any { it.blurSigma <= 0f }
-        val minSigma = spec.ellipses.filter { it.blurSigma > 0f }.minOfOrNull { it.blurSigma }
+        val hasSharpShape = spec.shapes.any { it.blurSigma <= 0f }
+        val minSigma = spec.shapes.filter { it.blurSigma > 0f }.minOfOrNull { it.blurSigma }
         if (hasSharpShape || minSigma == null) return sizeLimited
         val blurLimited = min(1f, MIN_BLUR_SPAN_PX / minSigma)
         // Keep enough pixels to preserve the position of large blurred shapes.
@@ -164,27 +171,35 @@ class FigmaSvgView @JvmOverloads constructor(
         bitmapCanvas.translate(-spec.viewportLeft, -spec.viewportTop)
         bitmapCanvas.clipRect(spec.clip.left, spec.clip.top, spec.clip.right, spec.clip.bottom)
 
-        spec.ellipses.forEach { ellipse ->
+        spec.shapes.forEach { shape ->
             val saveCount = bitmapCanvas.save()
-            ellipse.filterBounds?.let { bitmapCanvas.clipRect(it.left, it.top, it.right, it.bottom) }
-            shapePaint.color = ellipse.color
-            shapePaint.maskFilter = if (ellipse.blurSigma > 0f) {
-                blurFilters.getOrPut(ellipse.blurSigma) {
+            // The filter region is in the element's own user space, so it is clipped after the
+            // element transform is applied.
+            shape.transform?.let { bitmapCanvas.concat(it.toMatrix()) }
+            shape.filterBounds?.let { bitmapCanvas.clipRect(it.left, it.top, it.right, it.bottom) }
+            shapePaint.color = shape.color
+            shapePaint.maskFilter = if (shape.blurSigma > 0f) {
+                blurFilters.getOrPut(shape.blurSigma) {
                     BlurMaskFilter(
-                        svgSigmaToAndroidRadius(ellipse.blurSigma),
+                        svgSigmaToAndroidRadius(shape.blurSigma),
                         BlurMaskFilter.Blur.NORMAL
                     )
                 }
             } else {
                 null
             }
-            ovalBounds.set(
-                ellipse.centerX - ellipse.radiusX,
-                ellipse.centerY - ellipse.radiusY,
-                ellipse.centerX + ellipse.radiusX,
-                ellipse.centerY + ellipse.radiusY
-            )
-            bitmapCanvas.drawOval(ovalBounds, shapePaint)
+            when (shape) {
+                is EllipseSpec -> {
+                    ovalBounds.set(
+                        shape.centerX - shape.radiusX,
+                        shape.centerY - shape.radiusY,
+                        shape.centerX + shape.radiusX,
+                        shape.centerY + shape.radiusY
+                    )
+                    bitmapCanvas.drawOval(ovalBounds, shapePaint)
+                }
+                is PathSpec -> bitmapCanvas.drawPath(shape.toPath(), shapePaint)
+            }
             bitmapCanvas.restoreToCount(saveCount)
         }
         shapePaint.maskFilter = null
@@ -207,6 +222,16 @@ class FigmaSvgView @JvmOverloads constructor(
             fun fromValue(value: Int): ScaleType = values().firstOrNull { it.value == value }
                 ?: FIT_XY
         }
+    }
+
+    /** The build already validated this path data, so parsing cannot fail here in practice. */
+    private fun PathSpec.toPath(): Path = PathParser.createPathFromPathData(pathData).apply {
+        fillType = if (evenOdd) Path.FillType.EVEN_ODD else Path.FillType.WINDING
+    }
+
+    /** SVG's matrix(a b c d e f) laid out as Android's row-major 3x3. */
+    private fun Transform.toMatrix(): Matrix = shapeMatrix.apply {
+        setValues(floatArrayOf(a, c, e, b, d, f, 0f, 0f, 1f))
     }
 
     private fun svgSigmaToAndroidRadius(sigma: Float): Float =

@@ -1,5 +1,8 @@
 package io.github.justson.figmasvg.core
 
+import kotlin.math.abs
+import kotlin.math.sqrt
+
 /**
  * Raised for any Figma SVG source that falls outside the supported subset.
  *
@@ -34,27 +37,105 @@ data class Bounds(
 }
 
 /**
- * A single filled ellipse.
+ * A 2D affine transform matching SVG's `matrix(a b c d e f)`:
  *
- * [color] is packed ARGB. [blurSigma] is the SVG feGaussianBlur stdDeviation, which the runtime
- * converts to an Android BlurMaskFilter radius. [filterBounds] is the filter's userSpaceOnUse
- * region, used to clip the blur the same way the SVG filter region does.
+ * ```
+ * | a c e |
+ * | b d f |
+ * | 0 0 1 |
+ * ```
+ *
+ * The runtime maps this straight onto android.graphics.Matrix.
  */
+data class Transform(
+    val a: Float,
+    val b: Float,
+    val c: Float,
+    val d: Float,
+    val e: Float,
+    val f: Float
+) {
+    /** Returns `this` followed by [inner], i.e. the matrix product `this * inner`. */
+    fun concat(inner: Transform): Transform = Transform(
+        a = a * inner.a + c * inner.b,
+        b = b * inner.a + d * inner.b,
+        c = a * inner.c + c * inner.d,
+        d = b * inner.c + d * inner.d,
+        e = a * inner.e + c * inner.f + e,
+        f = b * inner.e + d * inner.f + f
+    )
+
+    val isIdentity: Boolean
+        get() = a == 1f && b == 0f && c == 0f && d == 1f && e == 0f && f == 0f
+
+    /**
+     * True when the transform is only translation, rotation and uniform scale.
+     *
+     * A Gaussian blur is isotropic in user space. Under a similarity transform it stays a
+     * (scaled) isotropic blur, which BlurMaskFilter can reproduce exactly. Under skew or
+     * non-uniform scale it would have to become anisotropic, which BlurMaskFilter cannot do —
+     * so the parser rejects that combination instead of rendering it wrong.
+     */
+    val isSimilarity: Boolean
+        get() {
+            val scaleX = sqrt(a * a + b * b)
+            val scaleY = sqrt(c * c + d * d)
+            if (scaleX <= 0f || scaleY <= 0f) return false
+            if (abs(scaleX - scaleY) > SIMILARITY_TOLERANCE * maxOf(scaleX, scaleY)) return false
+            // Columns must stay perpendicular (no skew).
+            return abs(a * c + b * d) <= SIMILARITY_TOLERANCE * scaleX * scaleY
+        }
+
+    companion object {
+        val IDENTITY = Transform(1f, 0f, 0f, 1f, 0f, 0f)
+        private const val SIMILARITY_TOLERANCE = 1e-3f
+    }
+}
+
+/** A shape to fill, in SVG user space. */
+sealed class ShapeSpec {
+    /** Packed ARGB. */
+    abstract val color: Int
+
+    /** SVG feGaussianBlur stdDeviation; 0 means no blur. */
+    abstract val blurSigma: Float
+
+    /** The filter's userSpaceOnUse region, clipped the same way the SVG filter region is. */
+    abstract val filterBounds: Bounds?
+
+    /** Accumulated transform from the ancestors and the element itself; null means identity. */
+    abstract val transform: Transform?
+}
+
 data class EllipseSpec(
     val centerX: Float,
     val centerY: Float,
     val radiusX: Float,
     val radiusY: Float,
-    val color: Int,
-    val blurSigma: Float,
-    val filterBounds: Bounds?
-)
+    override val color: Int,
+    override val blurSigma: Float,
+    override val filterBounds: Bounds?,
+    override val transform: Transform? = null
+) : ShapeSpec()
+
+/**
+ * A filled path. [pathData] keeps the original SVG `d` string — the runtime hands it to
+ * androidx PathParser, and the build already validated its syntax.
+ */
+data class PathSpec(
+    val pathData: String,
+    val evenOdd: Boolean,
+    override val color: Int,
+    override val blurSigma: Float,
+    override val filterBounds: Bounds?,
+    override val transform: Transform? = null
+) : ShapeSpec()
 
 /** Everything needed to draw one Figma SVG, with no XML or Android types involved. */
 data class RenderSpec(
     val viewport: Bounds,
     val clip: Bounds,
-    val ellipses: List<EllipseSpec>
+    val shapes: List<ShapeSpec>
 ) {
     val viewportLeft: Float get() = viewport.left
     val viewportTop: Float get() = viewport.top
@@ -65,8 +146,8 @@ data class RenderSpec(
         if (viewportWidth <= 0f || viewportHeight <= 0f) {
             throw FigmaSvgException("Viewport dimensions must be positive.")
         }
-        if (ellipses.isEmpty()) {
-            throw FigmaSvgException("No ellipses found in render source.")
+        if (shapes.isEmpty()) {
+            throw FigmaSvgException("No drawable shapes found in render source.")
         }
     }
 }
