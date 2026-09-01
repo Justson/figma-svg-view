@@ -43,7 +43,7 @@ dependencyResolutionManagement {
 
 ```kotlin
 dependencies {
-    implementation("com.github.Justson.figma-svg-view:figma-svg-view:1.1.0")
+    implementation("com.github.Justson.figma-svg-view:figma-svg-view:1.1.1")
 }
 ```
 
@@ -77,7 +77,7 @@ app/src/main/res/raw/background.svg
 
 ```kotlin
 plugins {
-    id("io.github.justson.figma-svg") version "1.1.0"
+    id("io.github.justson.figma-svg") version "1.1.1"
 }
 ```
 
@@ -143,8 +143,8 @@ JSON 构建产物位于 `build/generated/figmaSvg/<sourceSet>/res/raw/`。原始
 发布验证：
 
 ```bash
-./gradlew -p figma-svg-plugin publishToMavenLocal -PVERSION=1.1.0
-./gradlew :figma-svg-view:publishToMavenLocal -PVERSION=1.1.0
+./gradlew -p figma-svg-plugin publishToMavenLocal -PVERSION=1.1.1
+./gradlew :figma-svg-view:publishToMavenLocal -PVERSION=1.1.1
 ```
 
 ## License
